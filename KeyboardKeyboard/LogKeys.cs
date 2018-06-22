@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 using Gma.System.MouseKeyHook;
 using Midi;
 
@@ -7,6 +8,8 @@ namespace KeyboardKeyboard
 {
     internal class LogKeys
     {
+        public static string mostRecent = ""; 
+
         public static void Do(Action quit)
         {
             OutputDevice outputDevice = OutputDevice.InstalledDevices[0];
@@ -14,6 +17,9 @@ namespace KeyboardKeyboard
 
             Hook.GlobalEvents().KeyPress += (sender, e) =>
             {
+                mostRecent += e.KeyChar;
+                mostRecent = mostRecent.TruncateStart(20).ToLower();
+
                 if (e.KeyChar >= '0' && e.KeyChar <= '9')
                 {
                     Percussion percussion = Percussion.BassDrum1;
@@ -78,9 +84,23 @@ namespace KeyboardKeyboard
                     }
 
                     Console.WriteLine(pitch.ToString());
-                    //outputDevice.SendProgramChange(Channel.Channel1, Instrument.Trombone);
+
+                    foreach (var instrument in Enum.GetValues(typeof(Instrument)))
+                    {
+                        if (mostRecent.EndsWith(instrument.ToString().ToLower()))
+                        {
+                            outputDevice.SendProgramChange(Channel.Channel1, (Instrument)instrument);
+                            Console.WriteLine(instrument.ToString());
+                        }
+                    }
+
                     outputDevice.SendNoteOn(Channel.Channel1, pitch, 80);  // Middle C, velocity 80
                     outputDevice.SendPitchBend(Channel.Channel1, 7000);  // 8192 is centered, so 7000 is bent down
+                    Task.Run(() =>
+                    {
+                        Thread.Sleep(200);
+                        outputDevice.SendNoteOff(Channel.Channel1, pitch, 80);
+                    });
                 }
             };
         }
