@@ -1,24 +1,34 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+﻿using Melanchall.DryWetMidi.Multimedia;
 
-namespace KeyboardKeyboard
+namespace KeyboardKeyboard;
+
+internal static class Program
 {
-    class Program
+    private const string AppName = "KeyboardKeyboard";
+
+    [STAThread]
+    private static void Main()
     {
-        private static void Main(string[] args)
+        ApplicationConfiguration.Initialize();
+
+        // A second copy would play every note twice.
+        using var singleInstance = new Mutex(true, $@"Local\{AppName}", out var isFirstInstance);
+        if (!isFirstInstance)
         {
-            LogKeys.Do(null);
-            Application.Run(new ApplicationContext());
+            MessageBox.Show($"{AppName} is already running in the notification area.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
         }
 
-
-        private static void Exit(Action quit)
+        if (OutputDevice.GetDevicesCount() == 0)
         {
-            Application.Exit();
+            MessageBox.Show("No MIDI output device found.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
         }
+
+        using var output = OutputDevice.GetByIndex(0);
+        using var player = new KeyboardPlayer(output);
+        using var tray = new TrayContext(player);
+
+        Application.Run(tray);
     }
 }

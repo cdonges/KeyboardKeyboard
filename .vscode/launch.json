@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "KeyboardKeyboard",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/KeyboardKeyboard/bin/Debug/net10.0-windows/KeyboardKeyboard.exe",
+            "cwd": "${workspaceFolder}/KeyboardKeyboard",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        }
+    ]
+}
