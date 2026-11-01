@@ -19,7 +19,7 @@
         },
         {
             "label": "publish",
-            "detail": "Single-file KeyboardKeyboard.exe in publish\\",
+            "detail": "Single-file KeyboardKeyboard for this OS in publish/",
             "type": "process",
             "command": "dotnet",
             "args": [

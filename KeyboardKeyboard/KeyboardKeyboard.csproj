@@ -3,15 +3,48 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
     <PackageReference Include="Melanchall.DryWetMidi" Version="8.0.3" />
-    <PackageReference Include="MouseKeyHook" Version="5.7.1" />
+    <PackageReference Include="MeltySynth" Version="2.4.1" />
+    <PackageReference Include="SharpHook" Version="8.0.1" />
+    <PackageReference Include="Silk.NET.OpenAL" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" />
   </ItemGroup>
+
+  <!--
+    The instrument sounds come from the GeneralUser GS SoundFont by S. Christian Collins
+    (https://github.com/mrbumpy409/GeneralUser-GS). It's downloaded once into obj\ and embedded in the app.
+  -->
+  <PropertyGroup>
+    <SoundFontUrl>https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/97049183643d5fc5a9322a69c5b09efb667c6c3a/GeneralUser-GS.sf2</SoundFontUrl>
+    <SoundFontHash>9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe</SoundFontHash>
+    <SoundFontDir>$(MSBuildProjectDirectory)/$(BaseIntermediateOutputPath)soundfont/</SoundFontDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="$(SoundFontDir)GeneralUser-GS.sf2" LogicalName="GeneralUser-GS.sf2" Visible="false" />
+  </ItemGroup>
+
+  <Target Name="DownloadSoundFont" BeforeTargets="BeforeBuild" Condition="!Exists('$(SoundFontDir)GeneralUser-GS.sf2')">
+    <DownloadFile SourceUrl="$(SoundFontUrl)" DestinationFolder="$(SoundFontDir)" DestinationFileName="GeneralUser-GS.sf2.download" Retries="3" />
+    <VerifyFileHash File="$(SoundFontDir)GeneralUser-GS.sf2.download" Hash="$(SoundFontHash)" />
+    <Move SourceFiles="$(SoundFontDir)GeneralUser-GS.sf2.download" DestinationFiles="$(SoundFontDir)GeneralUser-GS.sf2" />
+  </Target>
+
+  <!-- Only DryWetMidi's note and instrument names are used, so its native MIDI device libraries aren't needed. -->
+  <Target Name="RemoveDryWetMidiNativeLibraries" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <None Remove="@(None)" Condition="$([System.String]::Copy('%(Filename)').StartsWith('Melanchall_DryWetMidi_Native'))" />
+    </ItemGroup>
+  </Target>
 
 </Project>

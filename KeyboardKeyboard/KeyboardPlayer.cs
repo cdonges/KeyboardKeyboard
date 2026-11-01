@@ -1,21 +1,22 @@
-﻿using Gma.System.MouseKeyHook;
-using Melanchall.DryWetMidi.Common;
-using Melanchall.DryWetMidi.Core;
-using Melanchall.DryWetMidi.Multimedia;
+﻿using Melanchall.DryWetMidi.Common;
 using Melanchall.DryWetMidi.MusicTheory;
 using Melanchall.DryWetMidi.Standards;
+using SharpHook;
+using SharpHook.Data;
+using SharpHook.Providers;
 
 namespace KeyboardKeyboard;
 
 /// <summary>
-/// Listens to key presses system-wide and plays them on a MIDI output device.
+/// Listens to key presses system-wide and plays them on the synth.
 /// The bottom two letter rows are white keys, the top letter row is black keys and the
 /// number row is drums. Typing the name of a General MIDI instrument switches to it.
 /// </summary>
 internal sealed class KeyboardPlayer : IDisposable
 {
     private const int MaxTypedLength = 20;
-    private const ushort PitchBend = 7000; // 8192 is centred, so this bends slightly down
+    private const int PitchBend = 7000; // 8192 is centred, so this bends slightly down
+    private const int Channel = 0;
 
     private static readonly SevenBitNumber Velocity = (SevenBitNumber)80;
     private static readonly TimeSpan NoteLength = TimeSpan.FromMilliseconds(200);
@@ -37,22 +38,27 @@ internal sealed class KeyboardPlayer : IDisposable
 
     private static readonly Dictionary<char, Note> Notes = BuildNoteMap();
 
+    private static readonly Dictionary<KeyCode, char> KeyChars = BuildKeyCharMap();
+
     private static readonly (string Name, GeneralMidiProgram Program)[] Instruments = Enum
         .GetValues<GeneralMidiProgram>()
         .Select(program => (program.ToString().ToLowerInvariant(), program))
         .ToArray();
 
-    private readonly OutputDevice output;
-    private readonly IKeyboardMouseEvents hook;
+    private readonly Synth synth;
+    private readonly SimpleGlobalHook hook = new();
+    private bool keyTypedSupported;
     private string typed = "";
 
-    public KeyboardPlayer(OutputDevice output)
+    public KeyboardPlayer(Synth synth)
     {
-        this.output = output;
-        output.PrepareForEventsSending();
+        this.synth = synth;
 
-        hook = Hook.GlobalEvents();
-        hook.KeyPress += OnKeyPress;
+        UioHookProvider.Instance.KeyTypedEnabled = true;
+        hook.HookEnabled += (_, _) =>
+            keyTypedSupported = UioHookProvider.Instance.GetOptionalFeatureSupport().HasFlag(UioHookFeature.KeyTypedEvents);
+        hook.KeyTyped += (_, e) => Play(e.Data.KeyChar);
+        hook.KeyPressed += OnKeyPressed;
     }
 
     public event EventHandler? InstrumentChanged;
@@ -62,20 +68,32 @@ internal sealed class KeyboardPlayer : IDisposable
 
     public GeneralMidiProgram Instrument { get; private set; } = GeneralMidiProgram.AcousticGrandPiano;
 
-    public void Dispose()
+    /// <summary>Starts listening to the keyboard. The task finishes when the player is disposed.</summary>
+    /// <exception cref="HookException">The keyboard can't be listened to, e.g. because permission was denied.</exception>
+    public Task RunAsync() => hook.RunAsync(GlobalHookType.Keyboard, useBackgroundThread: true);
+
+    public void Dispose() => hook.Dispose();
+
+    /// <summary>
+    /// Wayland doesn't report typed characters, so there the key itself is mapped to the character
+    /// it types on a US layout, without Shift.
+    /// </summary>
+    private void OnKeyPressed(object? sender, KeyboardHookEventArgs e)
     {
-        hook.KeyPress -= OnKeyPress;
-        hook.Dispose();
+        if (!keyTypedSupported && KeyChars.TryGetValue(e.Data.KeyCode, out var keyChar))
+        {
+            Play(keyChar);
+        }
     }
 
-    private void OnKeyPress(object? sender, KeyPressEventArgs e)
+    private void Play(char keyChar)
     {
         if (IsPaused)
         {
             return;
         }
 
-        typed += char.ToLowerInvariant(e.KeyChar);
+        typed += char.ToLowerInvariant(keyChar);
         if (typed.Length > MaxTypedLength)
         {
             typed = typed[^MaxTypedLength..];
@@ -83,13 +101,13 @@ internal sealed class KeyboardPlayer : IDisposable
 
         ChangeInstrumentIfNameTyped();
 
-        if (Drums.TryGetValue(e.KeyChar, out var drum))
+        if (Drums.TryGetValue(keyChar, out var drum))
         {
             PlayDrum(drum);
         }
         else
         {
-            PlayNote(Notes.GetValueOrDefault(e.KeyChar, DefaultNote));
+            PlayNote(Notes.GetValueOrDefault(keyChar, DefaultNote));
         }
     }
 
@@ -99,7 +117,7 @@ internal sealed class KeyboardPlayer : IDisposable
         {
             if (typed.EndsWith(name))
             {
-                output.SendEvent(new ProgramChangeEvent(program.AsSevenBitNumber()));
+                synth.ProgramChange(Channel, program.AsSevenBitNumber());
                 Instrument = program;
                 InstrumentChanged?.Invoke(this, EventArgs.Empty);
             }
@@ -108,20 +126,20 @@ internal sealed class KeyboardPlayer : IDisposable
 
     private void PlayDrum(GeneralMidiPercussion drum)
     {
-        output.SendEvent(new NoteOnEvent(drum.AsSevenBitNumber(), Velocity) { Channel = GeneralMidi.PercussionChannel });
+        synth.NoteOn(GeneralMidi.PercussionChannel, drum.AsSevenBitNumber(), Velocity);
     }
 
     private void PlayNote(Note note)
     {
-        output.SendEvent(new NoteOnEvent(note.NoteNumber, Velocity));
-        output.SendEvent(new PitchBendEvent(PitchBend));
+        synth.NoteOn(Channel, note.NoteNumber, Velocity);
+        synth.PitchBend(Channel, PitchBend);
         _ = StopNoteAfterDelayAsync(note);
     }
 
     private async Task StopNoteAfterDelayAsync(Note note)
     {
         await Task.Delay(NoteLength);
-        output.SendEvent(new NoteOffEvent(note.NoteNumber, Velocity));
+        synth.NoteOff(Channel, note.NoteNumber);
     }
 
     private static Dictionary<char, Note> BuildNoteMap()
@@ -154,6 +172,32 @@ internal sealed class KeyboardPlayer : IDisposable
             {
                 map[keys[i]] = notes[i];
             }
+        }
+
+        return map;
+    }
+
+    private static Dictionary<KeyCode, char> BuildKeyCharMap()
+    {
+        var map = new Dictionary<KeyCode, char>
+        {
+            [KeyCode.VcComma] = ',',
+            [KeyCode.VcPeriod] = '.',
+            [KeyCode.VcSlash] = '/',
+            [KeyCode.VcSemicolon] = ';',
+            [KeyCode.VcOpenBracket] = '[',
+            [KeyCode.VcCloseBracket] = ']',
+            [KeyCode.VcSpace] = ' ',
+        };
+
+        for (var c = 'a'; c <= 'z'; c++)
+        {
+            map[Enum.Parse<KeyCode>($"Vc{char.ToUpperInvariant(c)}")] = c;
+        }
+
+        for (var c = '0'; c <= '9'; c++)
+        {
+            map[Enum.Parse<KeyCode>($"Vc{c}")] = c;
         }
 
         return map;

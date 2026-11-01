@@ -6,7 +6,7 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/KeyboardKeyboard/bin/Debug/net10.0-windows/KeyboardKeyboard.exe",
+            "program": "${workspaceFolder}/KeyboardKeyboard/bin/Debug/net10.0/KeyboardKeyboard.dll",
             "cwd": "${workspaceFolder}/KeyboardKeyboard",
             "console": "internalConsole",
             "stopAtEntry": false

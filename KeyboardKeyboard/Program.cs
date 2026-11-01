@@ -1,34 +1,20 @@
-﻿using Melanchall.DryWetMidi.Multimedia;
+﻿using Avalonia;
+using Avalonia.Controls;
 
 namespace KeyboardKeyboard;
 
 internal static class Program
 {
-    private const string AppName = "KeyboardKeyboard";
-
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
-        ApplicationConfiguration.Initialize();
-
         // A second copy would play every note twice.
-        using var singleInstance = new Mutex(true, $@"Local\{AppName}", out var isFirstInstance);
-        if (!isFirstInstance)
-        {
-            MessageBox.Show($"{AppName} is already running in the notification area.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
+        using var singleInstance = new Mutex(true, $@"Local\{App.AppName}", out var isFirstInstance);
+        App.IsFirstInstance = isFirstInstance;
 
-        if (OutputDevice.GetDevicesCount() == 0)
-        {
-            MessageBox.Show("No MIDI output device found.", AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return;
-        }
-
-        using var output = OutputDevice.GetByIndex(0);
-        using var player = new KeyboardPlayer(output);
-        using var tray = new TrayContext(player);
-
-        Application.Run(tray);
+        AppBuilder.Configure<App>()
+            .UsePlatformDetect()
+            .With(new MacOSPlatformOptions { ShowInDock = false })
+            .StartWithClassicDesktopLifetime(args, ShutdownMode.OnExplicitShutdown);
     }
 }
